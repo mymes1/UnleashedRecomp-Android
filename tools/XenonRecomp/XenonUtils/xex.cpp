@@ -127,12 +127,26 @@ std::unordered_map<size_t, const char*> XboxKernelExports =
 Image Xex2LoadImage(const uint8_t* data, size_t dataSize)
 {
     auto* header = reinterpret_cast<const Xex2Header*>(data);
+
+    // Reject truncated files before any pointer arithmetic on their sizes.
+    if (dataSize < header->headerSize || dataSize < header->securityOffset)
+    {
+        return {};
+    }
+
     auto* security = reinterpret_cast<const Xex2SecurityInfo*>(data + header->securityOffset);
     const auto* fileFormatInfo = reinterpret_cast<const Xex2OptFileFormatInfo*>(getOptHeaderPtr(data, XEX_HEADER_FILE_FORMAT_INFO));
 
     Image image{};
     std::unique_ptr<uint8_t[]> result{};
     size_t imageSize = security->imageSize;
+
+    // Reject a corrupted security header claiming more payload than the file
+    // actually contains (the NONE/basic decompress paths memcpy imageSize bytes).
+    if (imageSize > dataSize - header->headerSize)
+    {
+        return {};
+    }
 
     // Decompress image
     if (fileFormatInfo != nullptr)
@@ -327,6 +341,12 @@ Image Xex2LoadImage(const uint8_t* data, size_t dataSize)
             for (size_t im = 0; im < library->numberOfImports; im++)
             {
                 auto originalThunk = (Xex2ThunkData*)image.Find(descriptors[im].firstThunk);
+                if (originalThunk == nullptr)
+                {
+                    // Import thunk outside any mapped section; nothing to patch.
+                    continue;
+                }
+
                 auto originalData = originalThunk;
                 originalData->data = ByteSwap(originalData->data);
 

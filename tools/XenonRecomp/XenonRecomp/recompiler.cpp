@@ -89,7 +89,20 @@ bool Recompiler::LoadConfig(const std::string_view& configFilePath)
         }
     }
 
+    if (file.empty())
+    {
+        fmt::println("ERROR: unable to load the XEX file: {}", config.directoryPath + config.filePath);
+        return false;
+    }
+
     image = Image::ParseImage(file.data(), file.size());
+
+    if (image.data == nullptr || image.size == 0)
+    {
+        fmt::println("ERROR: failed to parse the image (is {} a valid, complete XEX2 file?)", config.directoryPath + config.filePath);
+        return false;
+    }
+
     return true;
 }
 
@@ -174,23 +187,29 @@ void Recompiler::Analyse()
         image.symbols.emplace(fmt::format("sub_{:X}", address), address, size, Symbol_Function);
     }
 
-    auto& pdata = *image.Find(".pdata");
-    size_t count = pdata.size / sizeof(IMAGE_CE_RUNTIME_FUNCTION);
-    auto* pf = (IMAGE_CE_RUNTIME_FUNCTION*)pdata.data;
-    for (size_t i = 0; i < count; i++)
+    if (auto* pdata = image.Find(".pdata"))
     {
-        auto fn = pf[i];
-        fn.BeginAddress = ByteSwap(fn.BeginAddress);
-        fn.Data = ByteSwap(fn.Data);
-
-        if (image.symbols.find(fn.BeginAddress) == image.symbols.end())
+        size_t count = pdata->size / sizeof(IMAGE_CE_RUNTIME_FUNCTION);
+        auto* pf = (IMAGE_CE_RUNTIME_FUNCTION*)pdata->data;
+        for (size_t i = 0; i < count; i++)
         {
-            auto& f = functions.emplace_back();
-            f.base = fn.BeginAddress;
-            f.size = fn.FunctionLength * 4;
+            auto fn = pf[i];
+            fn.BeginAddress = ByteSwap(fn.BeginAddress);
+            fn.Data = ByteSwap(fn.Data);
 
-            image.symbols.emplace(fmt::format("sub_{:X}", f.base), f.base, f.size, Symbol_Function);
+            if (image.symbols.find(fn.BeginAddress) == image.symbols.end())
+            {
+                auto& f = functions.emplace_back();
+                f.base = fn.BeginAddress;
+                f.size = fn.FunctionLength * 4;
+
+                image.symbols.emplace(fmt::format("sub_{:X}", f.base), f.base, f.size, Symbol_Function);
+            }
         }
+    }
+    else
+    {
+        fmt::println("Warning: no .pdata section found in the image; skipping the runtime function table");
     }
 
     for (const auto& section : image.sections)
@@ -2287,6 +2306,12 @@ bool Recompiler::Recompile(const Function& fn)
     auto base = fn.base;
     auto end = base + fn.size;
     auto* data = (uint32_t*)image.Find(base);
+
+    if (data == nullptr)
+    {
+        fmt::println("Warning: function at {:X} is not inside the mapped image; skipping", base);
+        return true;
+    }
 
     // Guard against a malformed .pdata FunctionLength that extends past the
     // end of the image: clamp the disassembly to the image buffer bounds so

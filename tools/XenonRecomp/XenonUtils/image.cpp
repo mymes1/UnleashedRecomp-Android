@@ -12,8 +12,31 @@ void Image::Map(const std::string_view& name, size_t base, uint32_t size, uint8_
 
 const void* Image::Find(size_t address) const
 {
-    const auto section = std::prev(sections.upper_bound(address));
-    return section->data + (address - section->base);
+    // Find the last section whose base is at or below the address, then
+    // verify the address actually falls inside it. The previous
+    // implementation did std::prev(sections.upper_bound(address))
+    // unconditionally, which is undefined behavior for addresses below the
+    // first section and returned out-of-bounds pointers for addresses in
+    // the gaps between sections.
+    const Section* found = nullptr;
+    for (const auto& section : sections)
+    {
+        if (section.base <= address)
+        {
+            found = &section;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    if (found == nullptr || address >= found->base + found->size)
+    {
+        return nullptr;
+    }
+
+    return found->data + (address - found->base);
 }
 
 const Section* Image::Find(const std::string_view& name) const

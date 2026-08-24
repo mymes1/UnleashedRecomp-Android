@@ -1,6 +1,7 @@
 #include "shader.h"
 #include "shader_recompiler.h"
 #include "dxc_compiler.h"
+#include "crash_report.h"
 
 static std::unique_ptr<uint8_t[]> readAllBytes(const char* filePath, size_t& fileSize)
 {
@@ -31,6 +32,8 @@ struct RecompiledShader
 
 int main(int argc, char** argv)
 {
+    InstallCrashReporter();
+
 #ifndef XENOS_RECOMP_INPUT
     if (argc < 4)
     {

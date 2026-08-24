@@ -1,12 +1,13 @@
 project("XenonUtils")
 
 add_library(XenonUtils
-    "disasm.cpp" 
-    "xex.cpp" 
-    "image.cpp" 
+    "disasm.cpp"
+    "xex.cpp"
+    "image.cpp"
     "xdbf_wrapper.cpp"
     "xex_patcher.cpp"
     "memory_mapped_file.cpp"
+    "crash_report.cpp"
     "${THIRDPARTY_ROOT}/libmspack/libmspack/mspack/lzxd.c"
     "${THIRDPARTY_ROOT}/tiny-AES-c/aes.c"
 )

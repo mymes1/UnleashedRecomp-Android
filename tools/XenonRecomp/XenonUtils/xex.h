@@ -78,7 +78,10 @@ struct Xex2OptHeader
     be<uint32_t> key;
 
     // Raw (not be<>): members of an anonymous aggregate must be trivial
-    // types; MSVC accepted be<> here, GCC does not.
+    // types; MSVC accepted be<> here, GCC does not. The value/offset fields
+    // are big-endian on disk; callers of &optHeader.value read them through
+    // a be<> reinterpret (which swaps), and getOptHeaderPtr swaps the offset
+    // explicitly.
     union
     {
         uint32_t value;
@@ -259,7 +262,9 @@ inline const void* getOptHeaderPtr(const uint8_t* moduleBytes, uint32_t headerKe
             }
             else
             {
-                return reinterpret_cast<const void *>(reinterpret_cast<uintptr_t>(moduleBytes) + optHeader.offset);
+                // optHeader.offset is stored big-endian on disk; swap it back
+                // to a host value before using it as a byte offset.
+                return reinterpret_cast<const void *>(reinterpret_cast<uintptr_t>(moduleBytes) + ByteSwap(optHeader.offset));
             }
         }
     }

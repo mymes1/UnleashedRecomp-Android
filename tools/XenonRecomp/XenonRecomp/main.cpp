@@ -1,8 +1,11 @@
 #include "pch.h"
 #include "test_recompiler.h"
+#include "crash_report.h"
 
 int main(int argc, char* argv[])
 {
+    InstallCrashReporter();
+
 #ifndef XENON_RECOMP_CONFIG_FILE_PATH
     if (argc < 3)
     {

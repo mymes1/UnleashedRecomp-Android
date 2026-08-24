@@ -6,7 +6,7 @@ endif()
 
 set(SMOLV_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../thirdparty/smol-v/source")
 
-add_executable(XenosRecomp 
+add_executable(XenosRecomp
     constant_table.h
     dxc_compiler.cpp
     dxc_compiler.h
@@ -16,7 +16,11 @@ add_executable(XenosRecomp
     shader_code.h
     shader_recompiler.cpp
     shader_recompiler.h
-    "${SMOLV_SOURCE_DIR}/smolv.cpp")
+    "${SMOLV_SOURCE_DIR}/smolv.cpp"
+    # Self-contained crash backtrace reporter shared with XenonRecomp.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../XenonRecomp/XenonUtils/crash_report.cpp")
+
+target_include_directories(XenosRecomp PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../XenonRecomp/XenonUtils")
 
 target_link_libraries(XenosRecomp PRIVATE
     Microsoft::DirectXShaderCompiler
