@@ -2288,6 +2288,22 @@ bool Recompiler::Recompile(const Function& fn)
     auto end = base + fn.size;
     auto* data = (uint32_t*)image.Find(base);
 
+    // Guard against a malformed .pdata FunctionLength that extends past the
+    // end of the image: clamp the disassembly to the image buffer bounds so
+    // we never read out of bounds (which would segfault on a function whose
+    // recorded size runs past the end of the mapped image).
+    const size_t imageEnd = image.base + image.size;
+    if (end > imageEnd)
+    {
+        fmt::println("Warning: function at {:X} has size {:X} extending past the image end ({:X}); clamping to image end", base, fn.size, imageEnd - base);
+        end = imageEnd;
+    }
+    if (base >= imageEnd)
+    {
+        fmt::println("Warning: function at {:X} is past the image end; skipping", base);
+        return true;
+    }
+
     static std::unordered_set<size_t> labels;
     labels.clear();
 
@@ -2399,6 +2415,7 @@ bool Recompiler::Recompile(const Function& fn)
     std::swap(out, tempString);
 
     ppc_insn insn;
+    auto* dataStart = data; // guard the backward BCTR read so we never read before the function start
     while (base < end)
     {
         if (labels.find(base) != labels.end())
@@ -2424,7 +2441,11 @@ bool Recompiler::Recompile(const Function& fn)
         }
         else
         {
-            if (insn.opcode->id == PPC_INST_BCTR && (*(data - 1) == 0x07008038 || *(data - 1) == 0x00000060) && switchTable == config.switchTables.end())
+            // data > dataStart guards the backward read: on the first instruction
+            // of a function there is no preceding instruction to inspect, and
+            // reading before the function start (which can sit at the very start
+            // of the mapped image buffer) is an out-of-bounds read.
+            if (insn.opcode->id == PPC_INST_BCTR && data > dataStart && (*(data - 1) == 0x07008038 || *(data - 1) == 0x00000060) && switchTable == config.switchTables.end())
                 fmt::println("Found a switch jump table at {:X} with no switch table entry present", base);
 
             if (!Recompile(fn, base, insn, data, switchTable, localVariables, csrState))
