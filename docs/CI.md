@@ -7,19 +7,29 @@ from the Actions tab (workflow_dispatch).
 ## Required configuration
 
 The build needs three game-derived files that must never be committed to this
-public repository: `default.xex`, `default.xexp` and `shader.ar`. Keep them in a
-**private** repository and give the workflow access to it:
+public repository: `default.xex`, `default.xexp` and `shader.ar`. Zip them up
+and host the archive somewhere the workflow can download it (a Google Drive
+"anyone with the link" file works out of the box; any direct https download
+link is accepted as well):
 
-1. Create a private repository (e.g. `SansNope/UnleashedRecomp-GameFiles`)
-   containing `default.xex`, `default.xexp` and `shader.ar` at its root.
-2. In this repository's **Settings → Secrets and variables → Actions**:
-   - add a **variable** `GAME_FILES_REPO` with the `owner/name` of the private
-     repository;
-   - add a **secret** `GAME_FILES_TOKEN` with a fine-grained personal access
-     token that has read-only *Contents* permission for that single repository.
+1. Create a zip that contains `default.xex`, `default.xexp` and `shader.ar`
+   (folder nesting inside the zip is fine, the files are located by name).
+2. Upload it, e.g. to Google Drive, and share it as **"Anyone with the link"**.
+3. Provide the share URL to the workflow, either:
+   - **manually**: Actions → **Android APK** → **Run workflow** → paste the
+     link into the **"Game files zip link"** field, or
+   - **permanently** (used by tag builds, and as the fallback for manual
+     runs): in this repository's **Settings → Secrets and variables →
+     Actions**, add a **variable** `GAME_FILES_ZIP_URL` with the share URL
+     (the full `https://drive.google.com/file/d/…/view?…` link is fine).
 
-Note that a private repository limits distribution but does not change the legal
-status of game-derived data; keep access to it minimal.
+The workflow downloads the zip (`gdown` for Google Drive links, `curl` for
+anything else), extracts it and stages the three files into
+`UnleashedRecompLib/private/`.
+
+Note that a link-shared archive limits distribution but does not change the
+legal status of game-derived data; if your drive supports it, use an expiring
+or restricted share and update the variable when the link rotates.
 
 ## Optional release signing
 
@@ -64,4 +74,5 @@ are much faster.
 
 GitHub does not expose secrets to workflows triggered by pull requests from
 forks, so the workflow deliberately runs only on tags and manual dispatch —
-never on PRs. Do not weaken that: it is what keeps `GAME_FILES_TOKEN` safe.
+never on PRs. Do not weaken that: it is what keeps the release signing
+secrets (and the game-files link) out of reach of fork-triggered PRs.

@@ -1,12 +1,15 @@
 # Builds the Android APK from source on every tag push (v*) or manual dispatch.
 #
 # Game-derived inputs (default.xex, default.xexp, shader.ar) cannot live in this
-# public repository. They are fetched from a private repository configured via:
-#   - repository VARIABLE `GAME_FILES_REPO`  - e.g. "SansNope/UnleashedRecomp-GameFiles"
-#   - repository SECRET  `GAME_FILES_TOKEN`  - fine-grained PAT with read-only
-#     Contents access to that single repository
-# The private repository must contain default.xex, default.xexp and shader.ar
-# at its root. See docs/ci.md for details.
+# public repository. They are downloaded as a zip from a direct link - e.g. a
+# Google Drive "anyone with the link" share URL, or any other direct https
+# download URL - which is either
+#   - typed into the "Game files zip link" field when running the workflow
+#     manually from the Actions tab, or
+#   - stored in the repository VARIABLE `GAME_FILES_ZIP_URL` (used for tag
+#     builds, and as a fallback for manual runs).
+# The zip must contain default.xex, default.xexp and shader.ar (any folder
+# depth). See docs/CI.md for details.
 #
 # Optional release signing (falls back to a debug build when unset):
 #   - secret `ANDROID_KEYSTORE_BASE64`   - keystore file, base64-encoded
@@ -17,6 +20,12 @@ name: Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      game_files_url:
+        description: "Direct download link for the game files zip (Google Drive 'anyone with the link' URL, or any direct https URL). Leave empty to use the GAME_FILES_ZIP_URL variable."
+        required: false
+        default: ""
+        type: string
   push:
     tags: ["v*"]
 
@@ -37,17 +46,52 @@ jobs:
       - name: Check out sources
         uses: actions/checkout@v4
 
-      - name: Check out game files (private repo)
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ vars.GAME_FILES_REPO }}
-          token: ${{ secrets.GAME_FILES_TOKEN }}
-          path: game-files
+      - name: Download game files (zip)
+        # Manual runs get the "Game files zip link" field from the Actions tab;
+        # tag builds (and manual runs with an empty field) fall back to the
+        # GAME_FILES_ZIP_URL repository variable.
+        env:
+          URL: ${{ inputs.game_files_url || vars.GAME_FILES_ZIP_URL }}
+        run: |
+          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+            echo "::error::No game files link: paste a direct download link (e.g. a Google Drive 'anyone with the link' share URL) into the 'Game files zip link' field when running manually, or set the GAME_FILES_ZIP_URL repository variable (Settings → Secrets and variables → Actions) for tag builds."
+            exit 1
+          fi
+          case "$URL" in
+            *drive.google.com*)
+              # gdown follows Drive's large-file confirm token for us. Force a
+              # fresh install: runners may carry a stale gdown, and plain
+              # "pip3 install" keeps it ("already satisfied"). Invoke through
+              # "python3 -m gdown" so a stale binary on PATH cannot win.
+              pip3 install --quiet --upgrade --force-reinstall gdown 2>/dev/null \
+                || pip3 install --quiet --upgrade --force-reinstall --break-system-packages gdown
+              # Bare file ids are accepted by every gdown version; full URLs
+              # need the newer native parsing or the old --fuzzy flag.
+              id=$(printf '%s' "$URL" | sed -n 's|^.*/d/\([A-Za-z0-9_-]*\)/.*$|\1|p')
+              if [ -n "$id" ]; then
+                python3 -m gdown "$id" -O game-files.zip
+              else
+                python3 -m gdown "$URL" -O game-files.zip \
+                  || python3 -m gdown --fuzzy "$URL" -O game-files.zip
+              fi
+              ;;
+            *)
+              curl -fL --retry 3 -o game-files.zip "$URL"
+              ;;
+          esac
 
       - name: Stage game files
         run: |
-          install -m 644 game-files/default.xex game-files/default.xexp game-files/shader.ar UnleashedRecompLib/private/
-          rm -rf game-files
+          unzip -o -q game-files.zip -d game-files
+          for f in default.xex default.xexp shader.ar; do
+            found=$(find game-files -type f -name "$f" | head -n 1)
+            if [ -z "$found" ]; then
+              echo "::error::$f not found in the game files zip"
+              exit 1
+            fi
+            install -m 644 "$found" "UnleashedRecompLib/private/$f"
+          done
+          rm -rf game-files game-files.zip
 
       - name: Install build dependencies
         run: |

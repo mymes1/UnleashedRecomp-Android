@@ -1,6 +1,9 @@
 # ---- Build output ----
 /out/
 build/
+# zstd's CMake build system lives in its own build/ dir and is required
+# source, not build output (see tools/XenosRecomp/thirdparty/CMakeLists.txt).
+!tools/XenosRecomp/thirdparty/zstd/build/
 .gradle/
 *.o
 *.obj
