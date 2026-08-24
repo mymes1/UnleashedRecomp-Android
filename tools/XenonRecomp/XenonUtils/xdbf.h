@@ -128,13 +128,15 @@ struct XACHEntry
 
 union XDBFTitleID
 {
+    // Raw (not be<>): members of an anonymous aggregate must be trivial
+    // types; MSVC accepted be<> here, GCC does not.
     struct
     {
-        be<uint16_t> u16;
+        uint16_t u16;
         char u8[0x02];
     };
 
-    be<uint32_t> u32;
+    uint32_t u32;
 };
 
 struct XDBFTitleVersion

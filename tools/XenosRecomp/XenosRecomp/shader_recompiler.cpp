@@ -1394,6 +1394,8 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
             auto definition = reinterpret_cast<const Int4Definition*>(definitions);
             for (uint16_t i = 0; i < definition->count; i++)
             {
+                // Named struct member: local anonymous unions are a MSVC
+                // extension, GCC requires the member struct to be named.
                 union
                 {
                     uint32_t value;
@@ -1403,13 +1405,13 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
                         int8_t y;
                         int8_t z;
                         int8_t w;
-                    };
+                    } xy;
                 };
 
                 value = definition->values[i].get();
 
                 println("\tint4 i{} = int4({}, {}, {}, {});",
-                    (definition->registerIndex - 8992) / 4 + i, x, y, z, w);
+                    (definition->registerIndex - 8992) / 4 + i, xy.x, xy.y, xy.z, xy.w);
             }
             definitions += 2;
             definitions += definition->count;
@@ -1493,6 +1495,8 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
     const be<uint32_t>* code = reinterpret_cast<const be<uint32_t>*>(shaderData + shaderContainer->virtualSize + shader->physicalOffset);
 
+    // Named struct member: local anonymous unions are a MSVC extension,
+    // GCC requires the member struct to be named.
     union
     {
         ControlFlowInstruction controlFlow[2];
@@ -1502,7 +1506,7 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
             uint32_t code1;
             uint32_t code2;
             uint32_t code3;
-        };
+        } codes;
     };
 
     auto controlFlowCode = code;
@@ -1512,10 +1516,10 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
     while (instrAddress < instrSize)
     {
-        code0 = controlFlowCode[0];
-        code1 = controlFlowCode[1] & 0xFFFF;
-        code2 = (controlFlowCode[1] >> 16) | (controlFlowCode[2] << 16);
-        code3 = controlFlowCode[2] >> 16;
+        codes.code0 = controlFlowCode[0];
+        codes.code1 = controlFlowCode[1] & 0xFFFF;
+        codes.code2 = (controlFlowCode[1] >> 16) | (controlFlowCode[2] << 16);
+        codes.code3 = controlFlowCode[2] >> 16;
 
         for (auto& cfInstr : controlFlow)
         {
@@ -1579,10 +1583,10 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
 
     while (instrAddress < instrSize)
     {
-        code0 = controlFlowCode[0];
-        code1 = controlFlowCode[1] & 0xFFFF;
-        code2 = (controlFlowCode[1] >> 16) | (controlFlowCode[2] << 16);
-        code3 = controlFlowCode[2] >> 16;
+        codes.code0 = controlFlowCode[0];
+        codes.code1 = controlFlowCode[1] & 0xFFFF;
+        codes.code2 = (controlFlowCode[1] >> 16) | (controlFlowCode[2] << 16);
+        codes.code3 = controlFlowCode[2] >> 16;
 
         for (auto& cfInstr : controlFlow)
         {
@@ -1723,6 +1727,8 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
             
             for (uint32_t i = 0; i < count; i++)
             {
+                // Named struct member: local anonymous unions are a MSVC
+                // extension, GCC requires the member struct to be named.
                 union
                 {
                     VertexFetchInstruction vertexFetch;
@@ -1733,12 +1739,12 @@ void ShaderRecompiler::recompile(const uint8_t* shaderData, const std::string_vi
                         uint32_t code0;
                         uint32_t code1;
                         uint32_t code2;
-                    };
+                    } codes3;
                 };
-            
-                code0 = instructionCode[0];
-                code1 = instructionCode[1];
-                code2 = instructionCode[2];
+
+                codes3.code0 = instructionCode[0];
+                codes3.code1 = instructionCode[1];
+                codes3.code2 = instructionCode[2];
             
                 if ((sequence & 0x1) != 0)
                 {

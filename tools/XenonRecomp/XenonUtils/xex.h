@@ -77,10 +77,12 @@ struct Xex2OptHeader
 {
     be<uint32_t> key;
 
+    // Raw (not be<>): members of an anonymous aggregate must be trivial
+    // types; MSVC accepted be<> here, GCC does not.
     union
     {
-        be<uint32_t> value;
-        be<uint32_t> offset;
+        uint32_t value;
+        uint32_t offset;
     };
 };
 
@@ -220,9 +222,11 @@ struct Xex2ThunkData
             uint16_t type : 8;
         } originalData;
 
-        be<uint32_t> ordinal;
-        be<uint32_t> function;
-        be<uint32_t> addressOfData;
+        // Raw (not be<>): members of an anonymous aggregate must be trivial
+        // types; MSVC accepted be<> here, GCC does not.
+        uint32_t ordinal;
+        uint32_t function;
+        uint32_t addressOfData;
 
         // For easier swapping
         uint32_t data;

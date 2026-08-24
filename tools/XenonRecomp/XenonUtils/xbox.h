@@ -191,7 +191,9 @@ typedef struct _XDISPATCHER_HEADER
                 uint8_t DpcActive;
             };
         };
-        be<uint32_t> Lock;
+        // Raw (not be<>): members of an anonymous aggregate must be trivial
+        // types; MSVC accepted be<> here, GCC does not. Unused member.
+        uint32_t Lock;
     };
 
     be<uint32_t> SignalState;
@@ -224,9 +226,11 @@ typedef XDISPATCHER_HEADER XKEVENT;
 
 typedef struct _XIO_STATUS_BLOCK
 {
+    // Raw (not be<>): members of an anonymous aggregate must be trivial
+    // types; MSVC accepted be<> here, GCC does not. Unused struct.
     union {
-        be<uint32_t> Status;
-        be<uint32_t> Pointer;
+        uint32_t Status;
+        uint32_t Pointer;
     };
     be<uint32_t> Information;
 } XIO_STATUS_BLOCK;
@@ -241,12 +245,15 @@ typedef struct _XOVERLAPPED {
 
 // this name is so dumb
 typedef struct _XXOVERLAPPED {
+    // The anonymous-union members use raw uint32_t (not be<>): members of an
+    // anonymous aggregate must be trivially constructible; MSVC accepted
+    // be<> here, GCC does not. Unused struct.
     union
     {
         struct
         {
-            be<uint32_t> Error;
-            be<uint32_t> Length;
+            uint32_t Error;
+            uint32_t Length;
         };
 
         struct
