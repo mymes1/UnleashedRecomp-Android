@@ -60,7 +60,7 @@ A raw dump (`game` + `update`, with optional `dlc`) is enough: if the `patched` 
 <summary>Manual installation (alternative)</summary>
 
 - Open Android's Files app, choose **Unleashed Recomp game files**, and copy the `game`, `update`, and optional `dlc` folders from your dump into the folder shown by the app.
-- If your file manager cannot see `Android/data`, put the same folders into `Android/media/com.sega.sonicunr/UnleashedRecomp/` instead — that folder is browsable by regular file managers and the app picks it up automatically. Driver packages can likewise go into `Android/media/com.sega.sonicunr/driver_import/`.
+- If your file manager cannot see `Android/data`, put the same folders into `Android/media/com.sega.sonic1st/UnleashedRecomp/` instead — that folder is browsable by regular file managers and the app picks it up automatically. Driver packages can likewise go into `Android/media/com.sega.sonic1st/driver_import/`.
 - Do not use `adb push` directly into `Android/data`. Files created there by the shell can receive ownership that prevents the app from reading them.
 
 </details>

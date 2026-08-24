@@ -1243,6 +1243,7 @@ static void DrawConfigOptions()
         case 1: // INPUT
             DrawConfigOption(rowCount++, yOffset, &Config::HorizontalCamera, true);
             DrawConfigOption(rowCount++, yOffset, &Config::VerticalCamera, true);
+            DrawConfigOption(rowCount++, yOffset, &Config::CameraMode, true);
             DrawConfigOption(rowCount++, yOffset, &Config::Vibration, true);
 #ifndef __ANDROID__
             // Window focus is a desktop concept; Android apps pause in background.

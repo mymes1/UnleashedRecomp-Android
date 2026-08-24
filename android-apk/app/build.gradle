@@ -17,7 +17,7 @@ android {
         // Java sources and JNI bindings stay in the org.libsdl.app namespace (SDL
         // registers natives against those class names); only the install identity
         // changes. Renaming this orphans data under Android/data/<old id>.
-        applicationId "com.sega.sonicunr"
+        applicationId "com.sega.sonic1st"
         minSdkVersion 29
         targetSdkVersion 34
         versionCode 16

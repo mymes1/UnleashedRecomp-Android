@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### First-person head cam (issue #128)
+
+- New **Camera** option in the in-game Input menu: **Standard** (the normal
+  follow camera) or **Head**, which binds the camera to Sonic's head for a
+  first person experience.
+- The head cam keeps a stable horizon: its orientation follows the facing
+  direction (with a slight downward tilt) but ignores the character's
+  rotation, so a spin jump reads as a jump — the camera follows the arc —
+  instead of the whole world spinning.
+- The game's FOV/projection is preserved, the view blends in and out smoothly,
+  and the world map keeps its own camera.
+
+### Rebrand
+
+- Changed the Android application id to `com.sega.sonic1st` and the app name
+  to **Sonic Unleashed 1st Person**. Existing installations under
+  `com.sega.sonicunr` are a different app to Android: install the new build
+  side by side and copy your game files/saves over, or uninstall the old one.
+
+### CI: game files from a zip link
+
+- The Android APK workflow no longer checks out a private game-files
+  repository. It downloads a zip (e.g. from a Google Drive "anyone with the
+  link" share URL) configured through the `GAME_FILES_ZIP_URL` repository
+  variable, extracts it and stages `default.xex`, `default.xexp` and
+  `shader.ar`. See `docs/CI.md`.
+
 ## 0.5.2 (2026-07-13)
 
 Version 0.5.2 replaces the withdrawn 0.5.1 APK. It contains every user-facing change from 0.5.1, removes performance instrumentation that was unintentionally left enabled there, and adds the features below.

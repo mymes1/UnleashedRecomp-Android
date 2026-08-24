@@ -12,6 +12,7 @@ CONFIG_DEFINE("System", bool, ShowConsole, false);
 
 CONFIG_DEFINE_ENUM_LOCALISED("Input", ECameraRotationMode, HorizontalCamera, ECameraRotationMode::Normal);
 CONFIG_DEFINE_ENUM_LOCALISED("Input", ECameraRotationMode, VerticalCamera, ECameraRotationMode::Normal);
+CONFIG_DEFINE_ENUM_LOCALISED("Input", ECameraMode, CameraMode, ECameraMode::Standard);
 CONFIG_DEFINE_LOCALISED("Input", bool, Vibration, true);
 CONFIG_DEFINE_LOCALISED("Input", bool, AllowBackgroundInput, false);
 #ifdef __ANDROID__

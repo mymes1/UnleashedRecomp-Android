@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">UnleashedRecomp</string>
+    <string name="app_name">Sonic Unleashed 1st Person</string>
     <string name="documents_game_title">Fichiers du jeu Unleashed Recomp</string>
     <string name="documents_game_summary">Jeu actif, mods, configuration et sauvegardes</string>
     <string name="documents_transfer_title">Transferts Unleashed Recomp</string>
@@ -18,7 +18,7 @@
     <string name="mod_manager_error_save">Impossible d\'enregistrer la base des mods : %1$s</string>
     <string name="mod_manager_error_files">Impossible d\'ouvrir Fichiers Android.</string>
 
-    <string name="launcher_title">Unleashed Recomp</string>
+    <string name="launcher_title">Sonic Unleashed 1st Person</string>
     <string name="launcher_subtitle">Vérifiez l\'installation et configurez le jeu avant de le lancer.</string>
     <string name="launcher_game_files">Fichiers du jeu</string>
     <string name="launcher_open_files">Ouvrir le dossier du jeu</string>

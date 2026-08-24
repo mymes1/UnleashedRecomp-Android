@@ -348,6 +348,63 @@ CONFIG_DEFINE_ENUM_LOCALE(ECameraRotationMode)
     }
 };
 
+// Japanese Notes: This localization should include furigana in its description.
+CONFIG_DEFINE_LOCALE(CameraMode)
+{
+    { ELanguage::English,  { "Camera", "Change the in-game camera. Head binds the camera to Sonic's head for a first person experience." } },
+    { ELanguage::Japanese, { "カメラ", "ゲーム内の[カメラ:かめら]を変更します。「[ヘッド:ヘッド]」はカメラを[ソニック:ソニック]の[頭:あたま]に[固定:こてい]し、一人称の視点で[遊び:あそ]べます" } },
+    { ELanguage::German,   { "Kamera", "Ändere die Ingame-Kamera. 'Kopf' bindet die Kamera an Sonics Kopf für ein Ego-Erlebnis." } },
+    { ELanguage::French,   { "Caméra", "Modifie la caméra en jeu. « Tête » fixe la caméra à la tête de Sonic pour une expérience en vue à la première personne." } },
+    { ELanguage::Spanish, { "Cámara", "Cambia la cámara en el juego. 'Cabecera' fija la cámara a la cabeza de Sonic para una experiencia en primera persona." } },
+    { ELanguage::Italian,  { "Telecamera", "Cambia la telecamera di gioco. 'Testa' fissa la telecamera alla testa di Sonic per un'esperienza in prima persona." } }
+};
+
+CONFIG_DEFINE_ENUM_LOCALE(ECameraMode)
+{
+    {
+        ELanguage::English,
+        {
+            { ECameraMode::Standard, { "STANDARD", "" } },
+            { ECameraMode::Head,     { "HEAD", "First person view from Sonic's head; the camera stays level while he jumps." } }
+        }
+    },
+    {
+        ELanguage::Japanese,
+        {
+            { ECameraMode::Standard, { "標準", "" } },
+            { ECameraMode::Head,     { "ヘッド", "ソンクスの[頭:あたま]から[見える:みえる]一人称[視点:してん]。[ジャンプ:ジャンプ]中でもカメラは[水平:すいぺい]のままです" } }
+        }
+    },
+    {
+        ELanguage::German,
+        {
+            { ECameraMode::Standard, { "STANDARD", "" } },
+            { ECameraMode::Head,     { "KOPF", "Ego-Ansicht aus Sonics Kopf; die Kamera bleibt beim Springen waagerecht." } }
+        }
+    },
+    {
+        ELanguage::French,
+        {
+            { ECameraMode::Standard, { "STANDARD", "" } },
+            { ECameraMode::Head,     { "TÊTE", "Vue à la première personne depuis la tête de Sonic ; la caméra reste horizontale pendant les sauts." } }
+        }
+    },
+    {
+        ELanguage::Spanish,
+        {
+            { ECameraMode::Standard, { "ESTÁNDAR", "" } },
+            { ECameraMode::Head,     { "CABECERA", "Vista en primera persona desde la cabeza de Sonic; la cámara se mantiene horizontal al saltar." } }
+        }
+    },
+    {
+        ELanguage::Italian,
+        {
+            { ECameraMode::Standard, { "STANDARD", "" } },
+            { ECameraMode::Head,     { "TESTA", "Vista in prima persona dalla testa di Sonic; la telecamera resta in piano durante i salti." } }
+        }
+    }
+};
+
 // Japanese Notes: This localization should include furigana.
 CONFIG_DEFINE_LOCALE(Vibration)
 {

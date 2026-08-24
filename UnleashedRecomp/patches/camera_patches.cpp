@@ -4,6 +4,7 @@
 #include <gpu/video.h>
 #include "camera_patches.h"
 #include "aspect_ratio_patches.h"
+#include "headcam.h"
 
 void CameraAspectRatioMidAsmHook(PPCRegister& r30, PPCRegister& r31)
 {
@@ -63,5 +64,9 @@ PPC_FUNC(sub_82467890)
         ctx.r4 = r4;
     }
 
+    HeadCam::OnCameraUpdateSerialPre(ctx.r3.u32, base);
+
     __imp__sub_82467890(ctx, base);
+
+    HeadCam::OnCameraUpdateSerial(ctx.r3.u32, base);
 }

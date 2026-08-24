@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">UnleashedRecomp</string>
+    <string name="app_name">Sonic Unleashed 1st Person</string>
     <string name="documents_game_title">Файлы игры Unleashed Recomp</string>
     <string name="documents_game_summary">Активная игра, моды, конфигурация и сохранения</string>
     <string name="documents_transfer_title">Передача файлов Unleashed Recomp</string>
@@ -25,7 +25,7 @@
     <string name="mod_settings_empty">В ConfigSchemaFile нет поддерживаемых настроек.</string>
     <string name="mod_settings_error">Не удалось изменить настройки мода: %1$s</string>
 
-    <string name="launcher_title">Unleashed Recomp</string>
+    <string name="launcher_title">Sonic Unleashed 1st Person</string>
     <string name="launcher_subtitle">Проверьте установку и настройте игру перед запуском.</string>
     <string name="launcher_game_files">Файлы игры</string>
     <string name="launcher_open_files">Открыть папку игры</string>

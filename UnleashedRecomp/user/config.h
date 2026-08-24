@@ -52,6 +52,15 @@ enum class ECameraRotationMode : uint32_t
     Reverse
 };
 
+// In-game camera (issue #128). Head binds the camera to Sonic's head for a
+// first person experience; the orientation stays stable so jumps read as
+// jumps instead of the whole world spinning.
+enum class ECameraMode : uint32_t
+{
+    Standard,
+    Head
+};
+
 enum class EControllerIcons : uint32_t
 {
     Auto,

@@ -8,6 +8,7 @@
 
 #include "aspect_ratio_patches.h"
 #include "camera_patches.h"
+#include "headcam.h"
 #include "inspire_patches.h"
 #include <ui/touch_controls.h>
 
@@ -224,6 +225,9 @@ static void GetViewport(void* application, be<uint32_t>* width, be<uint32_t>* he
 {
     *width = 1280;
     *height = 720;
+
+    // The head cam uses this to learn the application/device handle.
+    HeadCam::OnGetViewport(application);
 }
 
 GUEST_FUNCTION_HOOK(sub_82E169B8, GetViewport);

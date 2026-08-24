@@ -1,5 +1,6 @@
 #include "config.h"
 #include <os/logger.h>
+#include <patches/headcam.h>
 #include <ui/game_window.h>
 #include <user/paths.h>
 
@@ -28,6 +29,12 @@ CONFIG_DEFINE_ENUM_TEMPLATE(ECameraRotationMode)
 {
     { "Normal",  ECameraRotationMode::Normal },
     { "Reverse", ECameraRotationMode::Reverse },
+};
+
+CONFIG_DEFINE_ENUM_TEMPLATE(ECameraMode)
+{
+    { "Standard", ECameraMode::Standard },
+    { "Head",     ECameraMode::Head },
 };
 
 CONFIG_DEFINE_ENUM_TEMPLATE(EControllerIcons)
@@ -837,6 +844,13 @@ void Config::CreateCallbacks()
     Config::ResolutionScale.Callback = [](ConfigDef<float>* def)
     {
         def->Value = std::clamp(def->Value, 0.25f, 2.0f);
+    };
+
+    Config::CameraMode.Callback = [](ConfigDef<ECameraMode>*)
+    {
+        // Toggling re-runs the head cam calibration so the camera blends in
+        // (or out) smoothly from the current state.
+        HeadCam::Reset();
     };
 }
 

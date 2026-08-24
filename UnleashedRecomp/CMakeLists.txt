@@ -163,6 +163,7 @@ set(UNLEASHED_RECOMP_PATCHES_CXX_SOURCES
     "patches/CTitleStateMenu_patches.cpp"
     "patches/fps_patches.cpp"
     "patches/frontend_listener.cpp"
+    "patches/headcam.cpp"
     "patches/input_patches.cpp"
     "patches/inspire_patches.cpp"
     "patches/misc_patches.cpp"
@@ -403,7 +404,7 @@ if (ANDROID)
     # Must match applicationId in android-apk/app/build.gradle. Only a fallback constant:
     # storage_android.cpp resolves the real internal path at runtime via SDL.
     target_compile_definitions(UnleashedRecomp PRIVATE
-        "GAME_INSTALL_DIRECTORY=\"/data/data/com.sega.sonicunr/files/UnleashedRecomp\""
+        "GAME_INSTALL_DIRECTORY=\"/data/data/com.sega.sonic1st/files/UnleashedRecomp\""
     )
 
     target_link_libraries(UnleashedRecomp PRIVATE adrenotools)

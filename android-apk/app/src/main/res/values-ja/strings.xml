@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">UnleashedRecomp</string>
+    <string name="app_name">Sonic Unleashed 1st Person</string>
     <string name="documents_game_title">Unleashed Recomp ゲームファイル</string>
     <string name="documents_game_summary">ゲーム本体、MOD、設定、セーブデータ</string>
     <string name="documents_transfer_title">Unleashed Recomp 転送フォルダー</string>
@@ -18,7 +18,7 @@
     <string name="mod_manager_error_save">MODデータベースを保存できません: %1$s</string>
     <string name="mod_manager_error_files">Android のファイルアプリを開けませんでした。</string>
 
-    <string name="launcher_title">Unleashed Recomp</string>
+    <string name="launcher_title">Sonic Unleashed 1st Person</string>
     <string name="launcher_subtitle">起動前にインストール状態を確認し、ゲームを設定してください。</string>
     <string name="launcher_game_files">ゲームファイル</string>
     <string name="launcher_open_files">ゲームフォルダーを開く</string>

@@ -35,6 +35,7 @@
 #include <ui/black_bar.h>
 #include <ui/touch_controls.h>
 #include <patches/aspect_ratio_patches.h>
+#include <patches/headcam.h>
 #include <user/config.h>
 #include <sdl_listener.h>
 #include <xxHashMap.h>
@@ -2323,6 +2324,8 @@ static uint32_t CreateDevice(uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4,
     device->viewport.maxZ = 1.0f;
 
     *a6 = g_memory.MapVirtual(device);
+
+    HeadCam::OnDeviceCreated(*a6);
 
     return 0;
 }
@@ -6697,6 +6700,8 @@ PPC_FUNC(sub_824EB5B0)
     g_updateDirectorProfiler.Begin();
     __imp__sub_824EB5B0(ctx, base);
     g_updateDirectorProfiler.End();
+
+    HeadCam::OnUpdateDirector(ctx.r3.u32, base);
 }
 
 PPC_FUNC_IMPL(__imp__sub_824EB290);
