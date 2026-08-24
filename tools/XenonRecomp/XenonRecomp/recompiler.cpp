@@ -2291,8 +2291,10 @@ bool Recompiler::Recompile(const Function& fn)
     // Guard against a malformed .pdata FunctionLength that extends past the
     // end of the image: clamp the disassembly to the image buffer bounds so
     // we never read out of bounds (which would segfault on a function whose
-    // recorded size runs past the end of the mapped image).
-    const size_t imageEnd = image.base + image.size;
+    // recorded size runs past the end of the mapped image). Round the end
+    // down to a 4-byte boundary so the final 4-byte instruction read stays
+    // within the buffer even if the image size is not a multiple of 4.
+    const size_t imageEnd = (image.base + image.size) & ~size_t(3);
     if (end > imageEnd)
     {
         fmt::println("Warning: function at {:X} has size {:X} extending past the image end ({:X}); clamping to image end", base, fn.size, imageEnd - base);
