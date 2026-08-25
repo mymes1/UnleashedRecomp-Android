@@ -981,7 +981,7 @@ namespace HeadCam
             if (!S.loggedFailure && changed.size() >= 16)
             {
                 S.loggedFailure = true;
-                LOGFN_WARNING("HeadCam: could not recover the camera matrix yet; the feature stays off until it calibrates");
+                LOGN_WARNING("HeadCam: could not recover the camera matrix yet; the feature stays off until it calibrates");
             }
             return;
         }
