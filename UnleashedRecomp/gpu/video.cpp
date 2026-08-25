@@ -3023,6 +3023,10 @@ void Video::Present()
     // timestamp of the last ping marks when the app froze.
     os::logger::Heartbeat();
 
+    // Refreshes the pre-crash stack snapshot the Android crash handler writes to
+    // log.txt (no-op elsewhere; throttled to ~4 captures/second).
+    os::logger::CrashSnapshotUpdate();
+
     g_readyForCommands = false;
 
     RenderCommand cmd;

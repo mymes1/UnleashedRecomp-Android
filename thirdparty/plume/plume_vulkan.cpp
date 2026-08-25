@@ -4192,6 +4192,25 @@ namespace plume {
             enabledExtensions.push_back(extension.c_str());
         }
 
+        // Diagnostics: dump the Vulkan version and the device features that gate
+        // the recompiled game's shaders (scalar block layout + buffer device
+        // addressing are required), plus the enabled extensions. Triaging an
+        // unsupported GPU (e.g. Bifrost Mali) from log.txt is impossible without
+        // this, since a driver can report a feature it does not actually honor.
+        fprintf(stderr,
+            "[vulkan] device apiVersion=%u.%u.%u, instance requested %u.%u, "
+            "scalarBlockLayout=%d, bufferDeviceAddress=%d, descriptorIndexing=%d, "
+            "nullDescriptor(robustness2)=%d, samplerMirrorClampToEdge=%d, enabledExtensions=%zu:\n",
+            VK_API_VERSION_MAJOR(physicalDeviceProperties.apiVersion),
+            VK_API_VERSION_MINOR(physicalDeviceProperties.apiVersion),
+            VK_API_VERSION_PATCH(physicalDeviceProperties.apiVersion),
+            VK_API_VERSION_MAJOR(renderInterface->appInfo.apiVersion),
+            VK_API_VERSION_MINOR(renderInterface->appInfo.apiVersion),
+            int(scalarBlockLayout), int(bufferDeviceAddress), int(descriptorIndexing),
+            int(nullDescriptor), int(samplerMirrorClampToEdge), enabledExtensions.size());
+        for (const char* extension : enabledExtensions)
+            fprintf(stderr, "[vulkan]   %s\n", extension);
+
         VkDeviceCreateInfo createInfo = {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         createInfo.pNext = createDeviceChain;

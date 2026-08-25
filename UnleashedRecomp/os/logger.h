@@ -66,6 +66,11 @@ namespace os::logger
     // thread states to log.txt if frames stop being presented; a no-op on other platforms.
     void Heartbeat();
 
+    // Captures the calling thread's stack into a pre-crash snapshot (throttled to at most
+    // one capture per ~250ms). The Android crash handler cannot unwind the stack itself, so
+    // it dumps the most recent snapshot to log.txt on fatal signals; a no-op elsewhere.
+    void CrashSnapshotUpdate();
+
     // Pauses the Android hang watchdog while the game is intentionally frozen in the
     // background, so the missing frames are not reported as a hang; a no-op elsewhere.
     void SetWatchdogSuspended(bool suspended);

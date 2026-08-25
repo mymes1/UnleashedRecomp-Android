@@ -15,6 +15,10 @@ void os::logger::Heartbeat()
 {
 }
 
+void os::logger::CrashSnapshotUpdate()
+{
+}
+
 void os::logger::SetWatchdogSuspended(bool suspended)
 {
 }

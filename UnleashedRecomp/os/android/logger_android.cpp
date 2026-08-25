@@ -11,6 +11,7 @@
 #include <ctime>
 #include <dirent.h>
 #include <dlfcn.h>
+#include <execinfo.h>
 #include <filesystem>
 #include <mutex>
 #include <pthread.h>
@@ -353,6 +354,119 @@ static void CrashWriteAddress(int fd, const char* label, uint64_t address)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Pre-crash stack snapshots
+// ---------------------------------------------------------------------------
+// The crash handler runs in signal context and cannot unwind the stack (the
+// unwinder may need to allocate and takes locks), so Present() calls
+// os::logger::CrashSnapshotUpdate() every frame, which re-captures the main
+// thread's stack at most once per ~250ms into the buffers below. On a fatal
+// signal the handler dumps the most recent snapshot (module + offset per
+// frame, symbolizable offline against the APK's .so files). The snapshot is
+// at most ~250ms stale; the faulting frame itself is still reported exactly
+// by pc/lr above.
+//
+// dladdr/backtrace are not formally async-signal-safe, but this capture runs
+// at a safe point (not from a handler); the handler path only reads the
+// buffers and write()s them.
+
+namespace
+{
+    constexpr int kMaxSnapshotFrames = 48;
+    constexpr int kSnapshotNameSize = 48;
+
+    std::atomic<bool> s_snapshotValid{ false };
+    std::atomic<int> s_snapshotCount{ 0 };
+    std::atomic<double> s_snapshotLastSeconds{ -1e300 };
+    alignas(64) std::atomic<uint64_t> s_snapshotFrames[kMaxSnapshotFrames];
+    std::atomic<uint64_t> s_snapshotModuleBases[kMaxSnapshotFrames];
+    std::atomic<char> s_snapshotModuleNames[kMaxSnapshotFrames][kSnapshotNameSize];
+
+    void SnapshotCaptureLocked()
+    {
+        void* frames[kMaxSnapshotFrames];
+        const int count = backtrace(frames, kMaxSnapshotFrames);
+        if (count <= 0)
+            return;
+
+        for (int i = 0; i < count; i++)
+        {
+            s_snapshotFrames[i].store(reinterpret_cast<uint64_t>(frames[i]), std::memory_order_relaxed);
+
+            uint64_t moduleBase = 0;
+            char name[kSnapshotNameSize] = { 0 };
+
+            Dl_info dlInfo{};
+            if (dladdr(frames[i], &dlInfo) != 0 && dlInfo.dli_fbase != nullptr)
+            {
+                moduleBase = reinterpret_cast<uint64_t>(dlInfo.dli_fbase);
+
+                const char* path = dlInfo.dli_fname != nullptr ? dlInfo.dli_fname : "";
+                const char* baseName = strrchr(path, '/');
+                baseName = baseName != nullptr ? baseName + 1 : path;
+
+                for (int c = 0; c < kSnapshotNameSize - 1 && baseName[c] != '\0'; c++)
+                    name[c] = baseName[c];
+            }
+
+            s_snapshotModuleBases[i].store(moduleBase, std::memory_order_relaxed);
+            for (int c = 0; c < kSnapshotNameSize; c++)
+                s_snapshotModuleNames[i][c].store(name[c], std::memory_order_relaxed);
+        }
+
+        s_snapshotCount.store(count, std::memory_order_release);
+        s_snapshotValid.store(true, std::memory_order_release);
+    }
+
+    void SnapshotWrite(int fd)
+    {
+        if (!s_snapshotValid.load(std::memory_order_acquire))
+            return;
+
+        const int count = s_snapshotCount.load(std::memory_order_acquire);
+        if (count <= 0)
+            return;
+
+        CrashWriteRaw(fd, "[crash] stack snapshot (captured within ~250ms before the crash, top frame first):\n");
+        for (int i = 0; i < count; i++)
+        {
+            const uint64_t address = s_snapshotFrames[i].load(std::memory_order_relaxed);
+            const uint64_t moduleBase = s_snapshotModuleBases[i].load(std::memory_order_relaxed);
+
+            CrashWriteRaw(fd, "  ");
+            CrashWriteHex(fd, address);
+
+            if (moduleBase != 0)
+            {
+                char name[kSnapshotNameSize] = { 0 };
+                for (int c = 0; c < kSnapshotNameSize; c++)
+                    name[c] = s_snapshotModuleNames[i][c].load(std::memory_order_relaxed);
+
+                CrashWriteRaw(fd, " (");
+                CrashWriteRaw(fd, name);
+                CrashWriteRaw(fd, "+");
+                CrashWriteHex(fd, address - moduleBase);
+                CrashWriteRaw(fd, ")");
+            }
+
+            CrashWriteRaw(fd, "\n");
+        }
+    }
+}
+
+void os::logger::CrashSnapshotUpdate()
+{
+    // Throttle: at most one capture per 250ms; the relaxed load/store pair is
+    // fine here because a missed capture only costs log freshness, not correctness.
+    const double now = MonotonicSeconds();
+    const double last = s_snapshotLastSeconds.load(std::memory_order_relaxed);
+    if (s_snapshotValid.load(std::memory_order_relaxed) && now - last < 0.25)
+        return;
+
+    s_snapshotLastSeconds.store(now, std::memory_order_relaxed);
+    SnapshotCaptureLocked();
+}
+
 static void CrashSignalHandler(int signal, siginfo_t* info, void* contextPtr)
 {
     const int fd = s_logRawFd.load(std::memory_order_acquire);
@@ -393,6 +507,9 @@ static void CrashSignalHandler(int signal, siginfo_t* info, void* contextPtr)
             CrashWriteRaw(fd, "\n");
         }
 #endif
+
+        // Dump the most recent pre-crash stack snapshot (see above).
+        SnapshotWrite(fd);
 
         CrashWriteRaw(fd, "[crash] end of report; the system tombstone (if any) has the full backtrace.\n");
     }
