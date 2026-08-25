@@ -165,10 +165,13 @@ jobs:
             ./gradlew --no-daemon assembleDebug
           fi
 
+      - name: Prepare artifact name
+        run: echo "APK_ARTIFACT=UnleashedRecomp-Android-$(echo "$GITHUB_REF_NAME" | tr '/:' '--')" >> "$GITHUB_ENV"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: UnleashedRecomp-Android-${{ github.ref_name }}
+          name: ${{ env.APK_ARTIFACT }}
           path: android-apk/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
