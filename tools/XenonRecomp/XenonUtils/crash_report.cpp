@@ -1,6 +1,11 @@
 #include "crash_report.h"
 
-#ifndef _WIN32
+// The backtrace implementation relies on <execinfo.h> (backtrace /
+// backtrace_symbols_fd), which exists on glibc/BSD but NOT on Android
+// (bionic). This file is also compiled into the Android build (UnleashedRecomp
+// links XenonUtils at runtime), so the reporter is only enabled on the
+// native build host, where the code-generation tools actually run.
+#if defined(__linux__) && !defined(__ANDROID__)
 
 #include <csignal>
 #include <setjmp.h>
