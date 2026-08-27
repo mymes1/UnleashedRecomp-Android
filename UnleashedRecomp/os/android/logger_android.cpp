@@ -11,7 +11,6 @@
 #include <ctime>
 #include <dirent.h>
 #include <dlfcn.h>
-#include <execinfo.h>
 #include <filesystem>
 #include <mutex>
 #include <pthread.h>
@@ -384,20 +383,50 @@ namespace
 
     void SnapshotCaptureLocked()
     {
-        void* frames[kMaxSnapshotFrames];
-        const int count = backtrace(frames, kMaxSnapshotFrames);
+        // bionic does not export backtrace() at the API level this app is
+        // built against (minSdk 29), so walk the frame-pointer chain manually:
+        // the NDK keeps frame pointers by default on aarch64, and each frame
+        // holds the saved FP and the return address at [fp] and [fp+8]. Every
+        // candidate frame must resolve through dladdr into a loaded module,
+        // which also detects the end of the chain when a frame built without
+        // a frame pointer is reached.
+        uint64_t frames[kMaxSnapshotFrames];
+        int count = 0;
+
+        uint64_t fp = reinterpret_cast<uint64_t>(__builtin_frame_address(0));
+        while (count < kMaxSnapshotFrames && fp != 0 && (fp & 0xF) == 0)
+        {
+            const uint64_t* frame = reinterpret_cast<const uint64_t*>(fp);
+            const uint64_t savedFp = frame[0];
+            const uint64_t retAddr = frame[1];
+
+            if (retAddr == 0)
+                break;
+
+            Dl_info dlInfo{};
+            if (dladdr(reinterpret_cast<void*>(retAddr), &dlInfo) == 0)
+                break; // not inside a loaded module: the chain ends here
+
+            frames[count] = retAddr;
+            count++;
+
+            if (savedFp <= fp || (savedFp & 0xF) != 0)
+                break;
+            fp = savedFp;
+        }
+
         if (count <= 0)
             return;
 
         for (int i = 0; i < count; i++)
         {
-            s_snapshotFrames[i].store(reinterpret_cast<uint64_t>(frames[i]), std::memory_order_relaxed);
+            s_snapshotFrames[i].store(frames[i], std::memory_order_relaxed);
 
             uint64_t moduleBase = 0;
             char name[kSnapshotNameSize] = { 0 };
 
             Dl_info dlInfo{};
-            if (dladdr(frames[i], &dlInfo) != 0 && dlInfo.dli_fbase != nullptr)
+            if (dladdr(reinterpret_cast<void*>(frames[i]), &dlInfo) != 0 && dlInfo.dli_fbase != nullptr)
             {
                 moduleBase = reinterpret_cast<uint64_t>(dlInfo.dli_fbase);
 
