@@ -391,6 +391,8 @@ namespace
         uint32_t listBase = 0;
         uint32_t listBeginOff = 0;
         uint32_t listEndOff = 0;
+        uint32_t listStride = 8; // bytes per entry (8 or 4)
+        uint32_t listHalf = 0;   // byte offset of the object pointer within the entry
         double lastListScan = 0.0;
         double lastScanDiagnostic = 0.0;
         bool loggedFirstDirectorCall = false;
@@ -577,17 +579,41 @@ namespace
                 bases.push_back(b);
         }
 
-        // Diagnostics: track the best near-miss so a failed scan explains why
-        // (remote debugging: the device log is the only ground truth we have).
+        // Diagnostics: track the three best near-misses so a failed scan
+        // explains itself (remote debugging: the device log is the only
+        // ground truth we have).
         struct Candidate
         {
             uint32_t b = 0, off0 = 0, off1 = 0;
             uint32_t count = 0, valid = 0, proxyHits = 0;
-            bool tooLong = false;
+            uint32_t stride = 8, half = 0;
             bool shapeValid = false;
         };
-        Candidate best;
+        Candidate top[3] = {};
+        auto consider = [&](const Candidate& c)
+        {
+            const uint32_t score = c.valid * 1000 + c.proxyHits;
+            int insertAt = 3;
+            for (int i = 0; i < 3; i++)
+            {
+                if (!top[i].shapeValid || score > top[i].valid * 1000 + top[i].proxyHits)
+                {
+                    insertAt = i;
+                    break;
+                }
+            }
+            if (insertAt == 3)
+                return;
+            for (int i = 2; i > insertAt; i--)
+                top[i] = top[i - 1];
+            top[insertAt] = c;
+        };
         uint32_t shapeValidTotal = 0;
+
+        auto entryIsObject = [&](uint32_t obj) -> bool
+        {
+            return ValidGuestPtr(obj) && InCodeRange(PPC_LOAD_U32(obj));
+        };
 
         for (uint32_t b : bases)
         {
@@ -595,65 +621,107 @@ namespace
             {
                 uint32_t begin = PPC_LOAD_U32(b + vo[0]);
                 uint32_t end = PPC_LOAD_U32(b + vo[1]);
-                if (end <= begin || ((end - begin) & 7) != 0)
+                if (end <= begin || ((end - begin) & 3) != 0)
                     continue;
-                uint32_t count = (end - begin) / 8;
-                if (count < 8 || count > 400)
+                const uint32_t span = end - begin;
+                if (span < 8 * 4 || span > 400 * 8)
                     continue;
 
                 shapeValidTotal++;
-                uint32_t valid = 0, proxyHits = 0;
-                bool tooLong = false;
-                for (uint32_t it = begin; it != end; it += 8)
+
+                // Interpret the range three ways: 8-byte slots with the
+                // object pointer in the low or high half, or plain 4-byte
+                // slots. (The first on-device scan showed a shape-valid
+                // vector whose 8-byte-low-half interpretation had zero
+                // object entries, so the pointer may sit elsewhere.)
+                struct Interpretation
                 {
-                    if (count > 300)
-                    {
-                        tooLong = true;
-                        break;
-                    }
-                    uint32_t obj = PPC_LOAD_U32(it);
-                    if (!ValidGuestPtr(obj) || !InCodeRange(PPC_LOAD_U32(obj)))
+                    uint32_t stride, half, count, valid, proxyHits;
+                };
+                Interpretation interps[3] = {
+                    { 8, 0, span / 8, 0, 0 },
+                    { 8, 4, span / 8, 0, 0 },
+                    { 4, 0, span / 4, 0, 0 },
+                };
+
+                for (auto& in : interps)
+                {
+                    if (in.count < 8 || in.count > 400)
                         continue;
-                    valid++;
-                    if (IsPlayerProxy(base, PPC_LOAD_U32(obj + 0x100)))
-                        proxyHits++;
+                    for (uint32_t it = begin; it != end; it += in.stride)
+                    {
+                        if (in.count > 300)
+                            break; // cap the work; the near-miss log still fires
+                        uint32_t obj = PPC_LOAD_U32(it + in.half);
+                        if (!entryIsObject(obj))
+                            continue;
+                        in.valid++;
+                        if (IsPlayerProxy(base, PPC_LOAD_U32(obj + 0x100)))
+                            in.proxyHits++;
+                    }
                 }
 
-                const uint32_t score = valid * 1000 + proxyHits;
-                if (score > best.valid * 1000 + best.proxyHits || best.shapeValid == false)
+                // Accept the interpretation with the most valid entries among
+                // those passing the threshold: a packed 4-byte list would
+                // otherwise be shadowed by its 8-byte-high-half half-view,
+                // which tracks only every second object.
+                uint32_t bestInterpScore = 0;
+                int bestInterp = -1;
+                for (int i = 0; i < 3; i++)
                 {
-                    best = { b, vo[0], vo[1], count, valid, proxyHits, tooLong, true };
+                    auto& in = interps[i];
+                    if (in.count < 8 || in.count > 400)
+                        continue;
+                    consider({ b, vo[0], vo[1], in.count, in.valid, in.proxyHits, in.stride, in.half, true });
+
+                    if (in.valid >= in.count * 3 / 4 && in.proxyHits > 0)
+                    {
+                        const uint32_t score = in.valid * 1000 + in.proxyHits;
+                        if (score > bestInterpScore)
+                        {
+                            bestInterpScore = score;
+                            bestInterp = i;
+                        }
+                    }
                 }
 
-                if (tooLong || valid < count * 3 / 4 || proxyHits == 0)
-                    continue;
-
-                S.listFound = true;
-                S.listBase = b;
-                S.listBeginOff = vo[0];
-                S.listEndOff = vo[1];
-                LOGFN("HeadCam: update list found (entries={}, proxies={})", valid, proxyHits);
-                return;
+                if (bestInterp >= 0)
+                {
+                    auto& in = interps[bestInterp];
+                    S.listFound = true;
+                    S.listBase = b;
+                    S.listBeginOff = vo[0];
+                    S.listEndOff = vo[1];
+                    S.listStride = in.stride;
+                    S.listHalf = in.half;
+                    LOGFN("HeadCam: update list found (stride={}B, pointer at +0x{:X}, entries={}, proxies={})",
+                        in.stride, in.half, in.valid, in.proxyHits);
+                    return;
+                }
             }
         }
 
         // Log the failed-scan diagnostic on the first scan and then, if the
         // head cam is requested but still not found, every 10 seconds.
-        if (best.shapeValid || shapeValidTotal > 0 || S.lastScanDiagnostic == 0.0)
+        if (top[0].shapeValid || S.lastScanDiagnostic == 0.0)
         {
             const bool shouldLog = S.lastScanDiagnostic == 0.0 ||
                 (Config::CameraMode == ECameraMode::Head && App::s_time - S.lastScanDiagnostic >= 10.0);
             if (shouldLog)
             {
                 S.lastScanDiagnostic = App::s_time;
-                if (best.shapeValid)
+                if (!top[0].shapeValid)
                 {
-                    LOGFN("HeadCam: scan: {} candidate bases, {} shape-valid vectors, best: base=0x{:X} off=0x{:X}/0x{:X} count={} valid={} proxies={} tooLong={}",
-                        bases.size(), shapeValidTotal, best.b, best.off0, best.off1, best.count, best.valid, best.proxyHits, int(best.tooLong));
+                    LOGFN("HeadCam: scan: {} candidate bases, no shape-valid (begin,end) vectors found", bases.size());
                 }
                 else
                 {
-                    LOGFN("HeadCam: scan: {} candidate bases, no shape-valid (begin,end) vectors found", bases.size());
+                    LOGFN("HeadCam: scan: {} candidate bases, {} shape-valid vectors; top candidates:", bases.size(), shapeValidTotal);
+                    for (int i = 0; i < 3 && top[i].shapeValid; i++)
+                    {
+                        LOGFN("  #{}: base=0x{:X} off=0x{:X}/0x{:X} stride={}B ptr+0x{:X} count={} valid={} proxies={}",
+                            i, top[i].b, top[i].off0, top[i].off1, top[i].stride, top[i].half, top[i].count, top[i].valid, top[i].proxyHits);
+                    }
                 }
             }
         }
@@ -668,16 +736,16 @@ namespace
 
         uint32_t begin = PPC_LOAD_U32(S.listBase + S.listBeginOff);
         uint32_t end = PPC_LOAD_U32(S.listBase + S.listEndOff);
-        if (end <= begin || (end - begin) >= 400 * 8)
+        if (end <= begin || (end - begin) >= 400 * S.listStride)
             return;
 
         float bestScore = 1e30f;
         uint32_t bestProxy = 0;
         float currentScore = 1e30f;
 
-        for (uint32_t it = begin; it != end; it += 8)
+        for (uint32_t it = begin; it != end; it += S.listStride)
         {
-            uint32_t obj = PPC_LOAD_U32(it);
+            uint32_t obj = PPC_LOAD_U32(it + S.listHalf);
             if (!ValidGuestPtr(obj))
                 continue;
             uint32_t proxy = PPC_LOAD_U32(obj + 0x100);
