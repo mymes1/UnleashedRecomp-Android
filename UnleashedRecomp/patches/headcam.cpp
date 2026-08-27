@@ -392,6 +392,9 @@ namespace
         uint32_t listBeginOff = 0;
         uint32_t listEndOff = 0;
         double lastListScan = 0.0;
+        double lastScanDiagnostic = 0.0;
+        bool loggedFirstDirectorCall = false;
+        double lastDirectorLivenessLog = 0.0;
 
         // Sticky player proxy.
         uint32_t proxy = 0;
@@ -557,10 +560,12 @@ namespace
         // the update director. Try member/vector offset pairs and validate:
         // most entries need a code-range vtable and at least one entry must
         // own a character proxy (position at proxy + 0x120).
-        const uint32_t vectorOffsets[11][2] = {
+        const uint32_t vectorOffsets[19][2] = {
             { 0x24, 0x28 }, { 0x20, 0x24 }, { 0x18, 0x1C }, { 0x10, 0x14 },
             { 0x08, 0x0C }, { 0x2C, 0x30 }, { 0x34, 0x38 }, { 0x3C, 0x40 },
-            { 0x44, 0x48 }, { 0x4C, 0x50 }, { 0x54, 0x58 },
+            { 0x44, 0x48 }, { 0x4C, 0x50 }, { 0x54, 0x58 }, { 0x60, 0x64 },
+            { 0x68, 0x6C }, { 0x70, 0x74 }, { 0x78, 0x7C }, { 0x80, 0x84 },
+            { 0x88, 0x8C }, { 0x90, 0x94 }, { 0x98, 0x9C },
         };
 
         std::vector<uint32_t> bases;
@@ -571,6 +576,18 @@ namespace
             if (ValidGuestPtr(b))
                 bases.push_back(b);
         }
+
+        // Diagnostics: track the best near-miss so a failed scan explains why
+        // (remote debugging: the device log is the only ground truth we have).
+        struct Candidate
+        {
+            uint32_t b = 0, off0 = 0, off1 = 0;
+            uint32_t count = 0, valid = 0, proxyHits = 0;
+            bool tooLong = false;
+            bool shapeValid = false;
+        };
+        Candidate best;
+        uint32_t shapeValidTotal = 0;
 
         for (uint32_t b : bases)
         {
@@ -584,6 +601,7 @@ namespace
                 if (count < 8 || count > 400)
                     continue;
 
+                shapeValidTotal++;
                 uint32_t valid = 0, proxyHits = 0;
                 bool tooLong = false;
                 for (uint32_t it = begin; it != end; it += 8)
@@ -600,6 +618,13 @@ namespace
                     if (IsPlayerProxy(base, PPC_LOAD_U32(obj + 0x100)))
                         proxyHits++;
                 }
+
+                const uint32_t score = valid * 1000 + proxyHits;
+                if (score > best.valid * 1000 + best.proxyHits || best.shapeValid == false)
+                {
+                    best = { b, vo[0], vo[1], count, valid, proxyHits, tooLong, true };
+                }
+
                 if (tooLong || valid < count * 3 / 4 || proxyHits == 0)
                     continue;
 
@@ -609,6 +634,27 @@ namespace
                 S.listEndOff = vo[1];
                 LOGFN("HeadCam: update list found (entries={}, proxies={})", valid, proxyHits);
                 return;
+            }
+        }
+
+        // Log the failed-scan diagnostic on the first scan and then, if the
+        // head cam is requested but still not found, every 10 seconds.
+        if (best.shapeValid || shapeValidTotal > 0 || S.lastScanDiagnostic == 0.0)
+        {
+            const bool shouldLog = S.lastScanDiagnostic == 0.0 ||
+                (Config::CameraMode == ECameraMode::Head && App::s_time - S.lastScanDiagnostic >= 10.0);
+            if (shouldLog)
+            {
+                S.lastScanDiagnostic = App::s_time;
+                if (best.shapeValid)
+                {
+                    LOGFN("HeadCam: scan: {} candidate bases, {} shape-valid vectors, best: base=0x{:X} off=0x{:X}/0x{:X} count={} valid={} proxies={} tooLong={}",
+                        bases.size(), shapeValidTotal, best.b, best.off0, best.off1, best.count, best.valid, best.proxyHits, int(best.tooLong));
+                }
+                else
+                {
+                    LOGFN("HeadCam: scan: {} candidate bases, no shape-valid (begin,end) vectors found", bases.size());
+                }
             }
         }
     }
@@ -728,6 +774,21 @@ namespace HeadCam
             {
                 S.director = director;
                 S.listFound = false;
+            }
+
+            // Liveness + assumption check: this hook assumes r3 at the call
+            // site is the update director object. The first-call log confirms
+            // the hook fires at all; the value shows whether r3 looks like a
+            // guest object pointer (0x8xxxxxxx data range) or something else.
+            if (!S.loggedFirstDirectorCall)
+            {
+                S.loggedFirstDirectorCall = true;
+                LOGFN("HeadCam: first update director call (director=0x{:X}, validPtr={})", director, int(ValidGuestPtr(director)));
+            }
+            else if (App::s_time - S.lastDirectorLivenessLog >= 20.0)
+            {
+                S.lastDirectorLivenessLog = App::s_time;
+                LOGFN("HeadCam: update director active (director=0x{:X}, listFound={})", director, int(S.listFound));
             }
 
             if (!S.listFound && App::s_time - S.lastListScan >= 2.0)
