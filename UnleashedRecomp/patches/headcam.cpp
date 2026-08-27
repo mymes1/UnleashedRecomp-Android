@@ -380,6 +380,10 @@ namespace
         Vec3 lastRight{}, lastUp{}, lastFwd{};
         bool haveLastEye = false;
         bool loggedCalibration = false;
+        double calibrationTime = 0.0;
+        bool loggedGate = false;
+        bool loggedFirstWrite = false;
+        double lastSurvivalLog = 0.0;
         bool loggedFailure = false;
 
         // Per-frame snapshot for the constants diff.
@@ -807,6 +811,7 @@ namespace HeadCam
     {
         if (!s_resetRequested.exchange(false))
             return;
+        LOGFN("HeadCam: reset (camera mode changed); re-calibrating");
         // Keep the device handle, the update list and the register calibration
         // (all still valid); clear the transient tracking state so the head
         // cam blends back in fresh from the current camera.
@@ -901,6 +906,26 @@ namespace HeadCam
         if (PPC_LOAD_U32(camera) == WORLD_MAP_CAMERA_VTABLE)
         {
             return;
+        }
+
+        // Survival probe: did the head view we wrote last frame reach this
+        // camera update untouched? If something re-uploads the matrix from
+        // the camera object in between, our write never reaches the screen.
+        if (S.lastWrittenValid && S.loggedFirstWrite && S.viewFloat + 16 <= 1024 &&
+            App::s_time - S.lastSurvivalLog >= 2.0)
+        {
+            bool survived = true;
+            const be<float>* cur = reinterpret_cast<const be<float>*>(vsBase + S.viewFloat);
+            for (int i = 0; i < 16; i++)
+            {
+                if (cur[i].get() != S.lastWritten[i])
+                {
+                    survived = false;
+                    break;
+                }
+            }
+            S.lastSurvivalLog = App::s_time;
+            LOGFN("HeadCam: previous head write survived to next camera update: {}", int(survived));
         }
 
         double dt = std::clamp(App::s_deltaTime, 1e-4, 1.0 / 15.0);
@@ -1137,6 +1162,7 @@ namespace HeadCam
         if (S.viewFloat >= 0 && !S.loggedCalibration)
         {
             S.loggedCalibration = true;
+            S.calibrationTime = App::s_time;
             LOGFN("HeadCam: calibrated (float={}, rowMajor={}, eye=({}, {}, {}))",
                 S.viewFloat, S.rowMajor ? 1 : 0, poseEye.x, poseEye.y, poseEye.z);
         }
@@ -1223,6 +1249,17 @@ namespace HeadCam
         float blendTarget = (havePlayer && S.haveFwd) ? 1.0f : 0.0f;
         float tau = S.blend < blendTarget ? BLEND_TAU_IN : BLEND_TAU_OUT;
         S.blend += (blendTarget - S.blend) * (1.0f - std::exp(-dt / tau));
+
+        // One-shot gate probe: if the head cam never engages, this shows
+        // exactly which condition is not opening (3s after calibration so
+        // the blend has had time to move if it was going to).
+        if (!S.loggedGate && S.loggedCalibration && App::s_time - S.calibrationTime >= 3.0)
+        {
+            S.loggedGate = true;
+            LOGFN("HeadCam: gate: havePlayer={} proxyValid={} estInit={} haveFwd={} blendTarget={} blend={} viewFloat={}",
+                int(S.havePlayer), int(S.proxyValid), int(S.estInit), int(S.haveFwd), int(blendTarget != 0.0f), S.blend, S.viewFloat);
+        }
+
         if (S.blend < 0.01f || S.viewFloat < 0)
             return;
 
@@ -1272,6 +1309,14 @@ namespace HeadCam
         // actually updated the register (or we are looking at our own value).
         memcpy(S.lastWritten, mem, sizeof(S.lastWritten));
         S.lastWrittenValid = true;
+
+        if (!S.loggedFirstWrite)
+        {
+            S.loggedFirstWrite = true;
+            S.lastSurvivalLog = App::s_time;
+            LOGFN("HeadCam: head view written (f0={}, blend={:.2f}, eye=({:.1f}, {:.1f}, {:.1f}))",
+                f0, S.blend, eye.x, eye.y, eye.z);
+        }
 
         // One dirty-flag bit covers 16 floats; mark the groups we touched.
         device->dirtyFlags[0] = device->dirtyFlags[0].get() |
