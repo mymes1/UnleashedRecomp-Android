@@ -3,7 +3,10 @@
 #include <source_location>
 
 #define LOG_IMPL(type, func, str)       os::logger::Log(str, os::logger::ELogType::type, func)
-#define LOGF_IMPL(type, func, str, ...) os::logger::Log(fmt::format(str, __VA_ARGS__), os::logger::ELogType::type, func)
+// __VA_OPT__ (C++20) keeps the no-argument form legal: LOGFN("literal") must
+// expand to fmt::format(str), not fmt::format(str, ) (trailing comma is an
+// "expected expression" error on clang).
+#define LOGF_IMPL(type, func, str, ...) os::logger::Log(fmt::format(str __VA_OPT__(,) __VA_ARGS__), os::logger::ELogType::type, func)
 
 // Function-specific logging.
 
