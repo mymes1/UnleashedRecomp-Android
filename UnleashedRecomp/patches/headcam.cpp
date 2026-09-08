@@ -456,11 +456,14 @@ namespace
     // stays inside the 4GB guest buffer: an unchecked read at the very top
     // of the space (e.g. 0xFFFFFFFF + 0x100) crosses the allocation and
     // segfaults the process (observed on device: SIGSEGV at the buffer end).
-    inline bool GuestU32At(uint64_t addr, uint32_t& out)
+    // Note: PPC_LOAD_U32 is a macro that references the function-scope
+    // `base` parameter, so these free helpers must load through `base`
+    // directly instead.
+    inline bool GuestU32At(const uint8_t* base, uint64_t addr, uint32_t& out)
     {
         if (addr + 4u > PPC_MEMORY_SIZE)
             return false;
-        out = PPC_LOAD_U32(static_cast<uint32_t>(addr));
+        out = __builtin_bswap32(*(const volatile uint32_t*)(base + addr));
         return true;
     }
 
@@ -577,12 +580,12 @@ namespace
         if (!ValidGuestPtr(proxy))
             return false;
         uint32_t vtable;
-        if (!GuestU32At(proxy, vtable) || !InCodeRange(vtable))
+        if (!GuestU32At(base, proxy, vtable) || !InCodeRange(vtable))
             return false;
         float p[3];
         uint32_t raw[3];
         for (int i = 0; i < 3; i++)
-            if (!GuestU32At(uint64_t(proxy) + 0x120 + i * 4, raw[i]))
+            if (!GuestU32At(base, uint64_t(proxy) + 0x120 + i * 4, raw[i]))
                 return false;
         memcpy(p, raw, sizeof(raw));
         return std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]) &&
@@ -610,7 +613,7 @@ namespace
         for (uint32_t off = 4; off + 4 <= 0x300; off += 4)
         {
             uint32_t b;
-            if (!GuestU32At(uint64_t(director) + off, b))
+            if (!GuestU32At(base, uint64_t(director) + off, b))
                 continue;
             if (ValidGuestPtr(b))
                 bases.push_back(b);
@@ -652,7 +655,7 @@ namespace
             if (!ValidGuestPtr(obj))
                 return false;
             uint32_t vtable;
-            return GuestU32At(obj, vtable) && InCodeRange(vtable);
+            return GuestU32At(base, obj, vtable) && InCodeRange(vtable);
         };
 
         for (uint32_t b : bases)
@@ -662,7 +665,7 @@ namespace
                 // b is an arbitrary 32-bit value read from a candidate
                 // member slot, so these reads are bounds-checked.
                 uint32_t begin = 0, end = 0;
-                if (!GuestU32At(uint64_t(b) + vo[0], begin) || !GuestU32At(uint64_t(b) + vo[1], end))
+                if (!GuestU32At(base, uint64_t(b) + vo[0], begin) || !GuestU32At(base, uint64_t(b) + vo[1], end))
                     continue;
                 if (end <= begin || ((end - begin) & 3) != 0)
                     continue;
@@ -699,11 +702,11 @@ namespace
                         // the object), so every read down this path is
                         // bounds-checked.
                         uint32_t obj;
-                        if (!GuestU32At(uint64_t(it) + in.half, obj) || !entryIsObject(obj))
+                        if (!GuestU32At(base, uint64_t(it) + in.half, obj) || !entryIsObject(obj))
                             continue;
                         in.valid++;
                         uint32_t proxy;
-                        if (GuestU32At(uint64_t(obj) + 0x100, proxy) && IsPlayerProxy(base, proxy))
+                        if (GuestU32At(base, uint64_t(obj) + 0x100, proxy) && IsPlayerProxy(base, proxy))
                             in.proxyHits++;
                     }
                 }
@@ -784,8 +787,8 @@ namespace
         // The vector may be reallocated by the game between frames, so
         // begin/end are re-read and bounds-checked every frame.
         uint32_t begin = 0, end = 0;
-        if (!GuestU32At(uint64_t(S.listBase) + S.listBeginOff, begin) ||
-            !GuestU32At(uint64_t(S.listBase) + S.listEndOff, end))
+        if (!GuestU32At(base, uint64_t(S.listBase) + S.listBeginOff, begin) ||
+            !GuestU32At(base, uint64_t(S.listBase) + S.listEndOff, end))
             return;
         if (end <= begin || (end - begin) >= 400 * S.listStride)
             return;
@@ -797,10 +800,10 @@ namespace
         for (uint32_t it = begin; it != end; it += S.listStride)
         {
             uint32_t obj;
-            if (!GuestU32At(uint64_t(it) + S.listHalf, obj) || !ValidGuestPtr(obj))
+            if (!GuestU32At(base, uint64_t(it) + S.listHalf, obj) || !ValidGuestPtr(obj))
                 continue;
             uint32_t proxy;
-            if (!GuestU32At(uint64_t(obj) + 0x100, proxy) || !IsPlayerProxy(base, proxy))
+            if (!GuestU32At(base, uint64_t(obj) + 0x100, proxy) || !IsPlayerProxy(base, proxy))
                 continue;
 
             Vec3 pos;
