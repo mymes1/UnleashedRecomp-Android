@@ -450,6 +450,30 @@ namespace
         return Finite(out);
     }
 
+    // Bounds-checked guest reads. The update-list discovery walks pointers
+    // that are arbitrary 32-bit values read out of candidate objects, so
+    // every one of those accesses must verify the whole accessed range
+    // stays inside the 4GB guest buffer: an unchecked read at the very top
+    // of the space (e.g. 0xFFFFFFFF + 0x100) crosses the allocation and
+    // segfaults the process (observed on device: SIGSEGV at the buffer end).
+    inline bool GuestU32At(uint64_t addr, uint32_t& out)
+    {
+        if (addr + 4u > PPC_MEMORY_SIZE)
+            return false;
+        out = PPC_LOAD_U32(static_cast<uint32_t>(addr));
+        return true;
+    }
+
+    inline bool GuestVec3(const uint8_t* base, uint64_t addr, Vec3& out)
+    {
+        if (addr + 12u > PPC_MEMORY_SIZE)
+            return false;
+        float v[3];
+        ReadFloats(base, static_cast<uint32_t>(addr), v, 3);
+        out = { v[0], v[1], v[2] };
+        return Finite(out);
+    }
+
     // ---------------- CCamera object scanning ----------------
     // The camera serializes its view matrix to the vertex shader constants
     // every frame; its own world transform (Hedgehog CTransform: quaternion
@@ -550,10 +574,17 @@ namespace
 
     bool IsPlayerProxy(const uint8_t* base, uint32_t proxy)
     {
-        if (!ValidGuestPtr(proxy) || !InCodeRange(PPC_LOAD_U32(proxy)))
+        if (!ValidGuestPtr(proxy))
+            return false;
+        uint32_t vtable;
+        if (!GuestU32At(proxy, vtable) || !InCodeRange(vtable))
             return false;
         float p[3];
-        ReadFloats(base, proxy + 0x120, p, 3);
+        uint32_t raw[3];
+        for (int i = 0; i < 3; i++)
+            if (!GuestU32At(uint64_t(proxy) + 0x120 + i * 4, raw[i]))
+                return false;
+        memcpy(p, raw, sizeof(raw));
         return std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]) &&
             std::fabs(p[0]) < 1e4f && std::fabs(p[1]) < 1e4f && std::fabs(p[2]) < 1e4f;
     }
@@ -578,7 +609,9 @@ namespace
         bases.push_back(director);
         for (uint32_t off = 4; off + 4 <= 0x300; off += 4)
         {
-            uint32_t b = PPC_LOAD_U32(director + off);
+            uint32_t b;
+            if (!GuestU32At(uint64_t(director) + off, b))
+                continue;
             if (ValidGuestPtr(b))
                 bases.push_back(b);
         }
@@ -616,15 +649,21 @@ namespace
 
         auto entryIsObject = [&](uint32_t obj) -> bool
         {
-            return ValidGuestPtr(obj) && InCodeRange(PPC_LOAD_U32(obj));
+            if (!ValidGuestPtr(obj))
+                return false;
+            uint32_t vtable;
+            return GuestU32At(obj, vtable) && InCodeRange(vtable);
         };
 
         for (uint32_t b : bases)
         {
             for (auto& vo : vectorOffsets)
             {
-                uint32_t begin = PPC_LOAD_U32(b + vo[0]);
-                uint32_t end = PPC_LOAD_U32(b + vo[1]);
+                // b is an arbitrary 32-bit value read from a candidate
+                // member slot, so these reads are bounds-checked.
+                uint32_t begin = 0, end = 0;
+                if (!GuestU32At(uint64_t(b) + vo[0], begin) || !GuestU32At(uint64_t(b) + vo[1], end))
+                    continue;
                 if (end <= begin || ((end - begin) & 3) != 0)
                     continue;
                 const uint32_t span = end - begin;
@@ -656,11 +695,15 @@ namespace
                     {
                         if (in.count > 300)
                             break; // cap the work; the near-miss log still fires
-                        uint32_t obj = PPC_LOAD_U32(it + in.half);
-                        if (!entryIsObject(obj))
+                        // it is a garbage 32-bit value (begin/end came from
+                        // the object), so every read down this path is
+                        // bounds-checked.
+                        uint32_t obj;
+                        if (!GuestU32At(uint64_t(it) + in.half, obj) || !entryIsObject(obj))
                             continue;
                         in.valid++;
-                        if (IsPlayerProxy(base, PPC_LOAD_U32(obj + 0x100)))
+                        uint32_t proxy;
+                        if (GuestU32At(uint64_t(obj) + 0x100, proxy) && IsPlayerProxy(base, proxy))
                             in.proxyHits++;
                     }
                 }
@@ -738,8 +781,12 @@ namespace
         if (!S.listFound)
             return;
 
-        uint32_t begin = PPC_LOAD_U32(S.listBase + S.listBeginOff);
-        uint32_t end = PPC_LOAD_U32(S.listBase + S.listEndOff);
+        // The vector may be reallocated by the game between frames, so
+        // begin/end are re-read and bounds-checked every frame.
+        uint32_t begin = 0, end = 0;
+        if (!GuestU32At(uint64_t(S.listBase) + S.listBeginOff, begin) ||
+            !GuestU32At(uint64_t(S.listBase) + S.listEndOff, end))
+            return;
         if (end <= begin || (end - begin) >= 400 * S.listStride)
             return;
 
@@ -749,15 +796,15 @@ namespace
 
         for (uint32_t it = begin; it != end; it += S.listStride)
         {
-            uint32_t obj = PPC_LOAD_U32(it + S.listHalf);
-            if (!ValidGuestPtr(obj))
+            uint32_t obj;
+            if (!GuestU32At(uint64_t(it) + S.listHalf, obj) || !ValidGuestPtr(obj))
                 continue;
-            uint32_t proxy = PPC_LOAD_U32(obj + 0x100);
-            if (!IsPlayerProxy(base, proxy))
+            uint32_t proxy;
+            if (!GuestU32At(uint64_t(obj) + 0x100, proxy) || !IsPlayerProxy(base, proxy))
                 continue;
 
             Vec3 pos;
-            if (!ReadVec3(base, proxy + 0x120, pos))
+            if (!GuestVec3(base, uint64_t(proxy) + 0x120, pos))
                 continue;
 
             Vec3 d = pos - eye;
@@ -788,7 +835,7 @@ namespace
         if (S.proxyValid && S.proxy)
         {
             Vec3 pos;
-            if (ReadVec3(base, S.proxy + 0x120, pos))
+            if (GuestVec3(base, uint64_t(S.proxy) + 0x120, pos))
                 S.proxyPos = pos;
             else
             {
