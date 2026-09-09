@@ -29,4 +29,9 @@ namespace HeadCam
     // Reset transient state (option toggled). Safe to call from any thread;
     // the actual reset happens on the game thread.
     void Reset();
+
+    // Re-applies the cached head view to the VS constants just before the
+    // main-thread render-state flush uploads them to the GPU. device is the
+    // host-side GuestDevice.
+    void ApplyAtFlush(void* device);
 }

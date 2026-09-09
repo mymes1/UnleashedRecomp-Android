@@ -444,6 +444,16 @@ namespace
         Quat camRawQ{};
         Vec3 camRawPos{};
         float camRawMatrix[16]{};    // original transform, captured on engage
+
+        // Serialized head matrix for the pre-draw flush write (the last
+        // place the constants are touched before upload to the GPU).
+        float headMem[16]{};
+        int32_t headF0 = -1;
+        bool headValid = false;
+
+        bool loggedInit = false;
+        double lastCalibLog = 0.0;
+        double lastEngageLog = 0.0;
     };
 
     CameraState S;
@@ -964,9 +974,16 @@ namespace HeadCam
     {
         ApplyReset();
 
+        if (!S.loggedInit)
+        {
+            S.loggedInit = true;
+            LOGFN("HeadCam: init (v3: per-camera calibration, object + flush-time writes)");
+        }
+
         if (Config::CameraMode != ECameraMode::Head)
         {
             S.blend = 0.0f; // the original camera owns the matrix again
+            S.headValid = false;
             return;
         }
         if (!S.device || !S.snapshotValid)
@@ -977,19 +994,40 @@ namespace HeadCam
         auto device = reinterpret_cast<GuestDevice*>(base + S.device);
         uint32_t* vsBase = device->vertexShaderFloatConstants;
 
-        // The world map keeps its own camera.
-        if (PPC_LOAD_U32(camera) == WORLD_MAP_CAMERA_VTABLE)
-        {
-            return;
-        }
-
-        // A new camera object (stage/camera change) invalidates the
-        // transform offset found inside the previous one.
+        // A new camera object (stage/camera change) invalidates everything
+        // derived from the previous one: the register calibration (block
+        // offset, row/column order and projection part are per-camera - a
+        // calibration latched on the title/world-map camera is wrong for a
+        // stage camera), the transform offset, and any engaged write.
         if (S.camObject != camera)
         {
             S.camObject = camera;
             S.camOffValid = false;
             S.engaged = false;
+            S.headValid = false;
+            S.viewFloat = -1;
+            S.loggedCalibration = false;
+            S.calibrationTime = 0.0;
+            S.projectionPart = Mat4::Identity();
+            S.projBeforeView = true;
+            S.havePose = false;
+            S.lastView = Mat4::Identity();
+            S.lastEye = {}; S.lastRight = {}; S.lastUp = {}; S.lastFwd = {};
+            S.haveLastEye = false;
+            S.estInit = false;
+            S.havePlayer = false;
+            S.playerPos = {}; S.lastPlayerPos = {};
+            S.vel = {}; S.fwd = {}; S.haveFwd = false;
+            S.proxy = 0; S.proxyValid = false;
+            S.lastWrittenValid = false;
+            S.blend = 0.0f;
+        }
+
+        // The world map keeps its own camera.
+        if (PPC_LOAD_U32(camera) == WORLD_MAP_CAMERA_VTABLE)
+        {
+            S.headValid = false;
+            return;
         }
 
         // Survival probe: did the head view we wrote last frame reach this
@@ -1364,7 +1402,11 @@ namespace HeadCam
                 S.camRawQ = { qf[0], qf[1], qf[2], qf[3] };
                 S.camRawPos = { pf[0], pf[1], pf[2] };
                 S.engaged = true;
-                LOGFN("HeadCam: engaging camera object (off=0x{:X}, rowMajor={})", S.camOff, int(S.rowMajor));
+                if (App::s_time - S.lastEngageLog >= 5.0)
+                {
+                    S.lastEngageLog = App::s_time;
+                    LOGFN("HeadCam: engaging camera object (off=0x{:X}, rowMajor={})", S.camOff, int(S.rowMajor));
+                }
             }
             else if (S.engaged && S.blend < 0.01f)
             {
@@ -1374,7 +1416,12 @@ namespace HeadCam
                 for (int i = 0; i < 16; i++)
                     tr[8 + i] = S.camRawMatrix[i];
                 S.engaged = false;
-                LOGFN("HeadCam: disengaging camera object (original transform restored)");
+                S.headValid = false;
+                if (App::s_time - S.lastEngageLog >= 5.0)
+                {
+                    S.lastEngageLog = App::s_time;
+                    LOGFN("HeadCam: disengaging camera object (original transform restored)");
+                }
             }
         }
 
@@ -1428,6 +1475,12 @@ namespace HeadCam
         memcpy(S.lastWritten, mem, sizeof(S.lastWritten));
         S.lastWrittenValid = true;
 
+        // Cache the serialized head matrix so the pre-draw state flush can
+        // re-apply it as the last word before the GPU upload.
+        memcpy(S.headMem, mem, sizeof(S.headMem));
+        S.headF0 = f0;
+        S.headValid = true;
+
         if (!S.loggedFirstWrite)
         {
             S.loggedFirstWrite = true;
@@ -1457,5 +1510,23 @@ namespace HeadCam
             for (int i = 0; i < 16; i++)
                 tr[8 + i] = omem[i];
         }
+    }
+
+    // Called at the top of the main-thread render-state flush, before the
+    // dirty VS constant groups are uploaded to the GPU. Whatever the guest
+    // wrote to the view block after CCamera::UpdateSerial (the engine
+    // re-serializes the camera object, overwriting a constants-only write),
+    // this is the last place the constants are touched before the upload,
+    // so re-applying the head view here guarantees it reaches the GPU.
+    void ApplyAtFlush(void* deviceVoid)
+    {
+        if (!S.headValid || S.headF0 < 0 || S.headF0 + 16 > 1024)
+            return;
+        auto device = reinterpret_cast<GuestDevice*>(deviceVoid);
+        auto* dst = reinterpret_cast<be<float>*>(device->vertexShaderFloatConstants + S.headF0);
+        for (int i = 0; i < 16; i++)
+            dst[i] = S.headMem[i];
+        device->dirtyFlags[0] = device->dirtyFlags[0].get() |
+            (0x1ULL << (S.headF0 / 16)) | (0x1ULL << ((S.headF0 + 15) / 16));
     }
 }

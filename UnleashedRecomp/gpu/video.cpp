@@ -4545,6 +4545,11 @@ struct LocalRenderCommandQueue
 
 static void FlushRenderStateForMainThread(GuestDevice* device, LocalRenderCommandQueue& queue)
 {
+    // Head cam (issue #128): make the head view the last word on the VS
+    // constants before the dirty groups are uploaded to the GPU. No-op
+    // unless the head cam is engaged (checked inside, one cache-line read).
+    HeadCam::ApplyAtFlush(device);
+
     constexpr size_t BOOL_MASK = 0x100000000000000ull;
     if ((device->dirtyFlags[4].get() & BOOL_MASK) != 0)
     {
