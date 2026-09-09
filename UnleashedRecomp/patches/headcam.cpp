@@ -430,6 +430,20 @@ namespace
         float lastWritten[16]{};
         bool lastWrittenValid = false;
         int32_t frameCount = 0;
+
+        // The engine re-serializes the camera object's transform into the
+        // VS constants after CCamera::UpdateSerial, overwriting a
+        // constants-only write before the pre-draw state flush. So the head
+        // pose must also be written into the object's CTransform (the source
+        // of truth) at the offset found by ScanCameraObject.
+        uint32_t camObject = 0;
+        uint32_t camOff = 0;         // CTransform offset inside the camera object
+        bool camOffValid = false;
+        Mat4 camProj = Mat4::Identity(); // projection part of the stored matrix (identity if it is a pure view)
+        bool engaged = false;        // head pose is currently written into the object
+        Quat camRawQ{};
+        Vec3 camRawPos{};
+        float camRawMatrix[16]{};    // original transform, captured on engage
     };
 
     CameraState S;
@@ -482,13 +496,14 @@ namespace
     // every frame; its own world transform (Hedgehog CTransform: quaternion
     // + position + matrix) is stored in the CCamera object. Find a consistent
     // CTransform; the view matrix is the inverse of its rotation/position.
-    bool ScanCameraObject(const uint8_t* base, uint32_t camera, bool& rowMajor, Mat4& outView, Vec3& outEye, Vec3& outRight, Vec3& outUp, Vec3& outForward)
+    bool ScanCameraObject(const uint8_t* base, uint32_t camera, bool& rowMajor, Mat4& outView, Vec3& outEye, Vec3& outRight, Vec3& outUp, Vec3& outForward, uint32_t& outOff, Mat4& outProj)
     {
         struct Candidate
         {
             Vec3 pos;
             Quat q;
             bool rowMajor;
+            uint32_t off;
         };
         std::vector<Candidate> candidates;
 
@@ -533,7 +548,7 @@ namespace
                     std::fabs(Dot({ mm.m[2][0], mm.m[2][1], mm.m[2][2] }, forward) - 1.0f) > 5e-3f)
                     continue;
 
-                candidates.push_back({ { pf[0], pf[1], pf[2] }, q, rm });
+                candidates.push_back({ { pf[0], pf[1], pf[2] }, q, rm, off });
             }
         }
 
@@ -572,6 +587,16 @@ namespace
         outRight = right;
         outUp = up;
         outForward = forward;
+        outOff = c.off;
+
+        // Separate the projection part from the stored matrix so the head
+        // pose can be written back in the same form. P = V^-1 * M when the
+        // stored matrix is V*P; identity when it is a pure view.
+        float mf[16];
+        ReadFloats(base, camera + c.off + 0x20, mf, 16);
+        Mat4 mRaw = ToMat4(mf, c.rowMajor);
+        Mat4 pVP = Mul(InvertRigid(outView), mRaw);
+        outProj = LooksLikeProjectionPart(pVP, 2e-3f) ? pVP : Mat4::Identity();
         return true;
     }
 
@@ -958,6 +983,15 @@ namespace HeadCam
             return;
         }
 
+        // A new camera object (stage/camera change) invalidates the
+        // transform offset found inside the previous one.
+        if (S.camObject != camera)
+        {
+            S.camObject = camera;
+            S.camOffValid = false;
+            S.engaged = false;
+        }
+
         // Survival probe: did the head view we wrote last frame reach this
         // camera update untouched? If something re-uploads the matrix from
         // the camera object in between, our write never reaches the screen.
@@ -1000,10 +1034,14 @@ namespace HeadCam
         // the true view matrix V, which anchors the register calibration. ---
         Mat4 vObj = Mat4::Identity();
         Vec3 objEye{}, objRight{}, objUp{}, objFwd{};
-        bool needObjScan = S.viewFloat < 0 ||
+        // In head mode the scan also refreshes the object's transform
+        // offset every frame (it is what the pose is written into).
+        bool needObjScan = (Config::CameraMode == ECameraMode::Head) || S.viewFloat < 0 ||
             (!CloseToIdentity(S.projectionPart, 1e-3f) && (S.frameCount & 31) == 0) ||
             (S.frameCount & 15) == 0;
-        bool haveObj = needObjScan && ScanCameraObject(base, camera, S.rowMajor, vObj, objEye, objRight, objUp, objFwd);
+        bool haveObj = needObjScan && ScanCameraObject(base, camera, S.rowMajor, vObj, objEye, objRight, objUp, objFwd, S.camOff, S.camProj);
+        if (haveObj)
+            S.camOffValid = true;
 
         // --- Calibration: locate the 16 floats the camera serializes. The
         // block is either the view matrix V or V * projection; match it
@@ -1310,6 +1348,36 @@ namespace HeadCam
                 int(S.havePlayer), int(S.proxyValid), int(S.estInit), int(S.haveFwd), int(blendTarget != 0.0f), S.blend, S.viewFloat);
         }
 
+        // Engage/disengage the camera-object write. The object's transform
+        // is what the engine re-serializes into the VS constants after
+        // UpdateSerial, so it must carry the head pose while engaged and be
+        // restored to the original before we stop driving it.
+        if (S.camOffValid)
+        {
+            be<float>* tr = reinterpret_cast<be<float>*>(base + camera + S.camOff);
+            if (!S.engaged && S.blend >= 0.01f)
+            {
+                float qf[4], pf[4];
+                ReadFloats(base, camera + S.camOff + 0x00, qf, 4);
+                ReadFloats(base, camera + S.camOff + 0x10, pf, 3);
+                ReadFloats(base, camera + S.camOff + 0x20, S.camRawMatrix, 16);
+                S.camRawQ = { qf[0], qf[1], qf[2], qf[3] };
+                S.camRawPos = { pf[0], pf[1], pf[2] };
+                S.engaged = true;
+                LOGFN("HeadCam: engaging camera object (off=0x{:X}, rowMajor={})", S.camOff, int(S.rowMajor));
+            }
+            else if (S.engaged && S.blend < 0.01f)
+            {
+                tr[0] = S.camRawQ.x; tr[1] = S.camRawQ.y;
+                tr[2] = S.camRawQ.z; tr[3] = S.camRawQ.w;
+                tr[4] = S.camRawPos.x; tr[5] = S.camRawPos.y; tr[6] = S.camRawPos.z;
+                for (int i = 0; i < 16; i++)
+                    tr[8 + i] = S.camRawMatrix[i];
+                S.engaged = false;
+                LOGFN("HeadCam: disengaging camera object (original transform restored)");
+            }
+        }
+
         if (S.blend < 0.01f || S.viewFloat < 0)
             return;
 
@@ -1371,5 +1439,23 @@ namespace HeadCam
         // One dirty-flag bit covers 16 floats; mark the groups we touched.
         device->dirtyFlags[0] = device->dirtyFlags[0].get() |
             (0x1ULL << (f0 / 16)) | (0x1ULL << ((f0 + 15) / 16));
+
+        // Write the head pose into the camera object's CTransform as well:
+        // the engine re-serializes this object into the VS constants after
+        // UpdateSerial, so a constants-only write is overwritten before the
+        // pre-draw state flush and never reaches the GPU. The stored matrix
+        // form is V * P (P is identity when it stores a pure view).
+        if (S.engaged && S.camOffValid)
+        {
+            be<float>* tr = reinterpret_cast<be<float>*>(base + camera + S.camOff);
+            tr[0] = q.x; tr[1] = q.y;
+            tr[2] = q.z; tr[3] = q.w;
+            tr[4] = eye.x; tr[5] = eye.y; tr[6] = eye.z;
+            Mat4 mNew = Mul(vBlend, S.camProj);
+            float omem[16];
+            Mat4ToMem(omem, S.rowMajor, mNew);
+            for (int i = 0; i < 16; i++)
+                tr[8 + i] = omem[i];
+        }
     }
 }
